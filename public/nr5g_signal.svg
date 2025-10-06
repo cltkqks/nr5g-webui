@@ -1,0 +1,29 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" width="256" height="256" viewBox="0 0 256 256" role="img" aria-labelledby="title desc">
+  <title id="title">NR 5G Signal Icon</title>
+  <desc id="desc">Five ascending signal bars with a rounded 5G badge, suitable for use as an icon.</desc>
+
+  <!-- Style: customize via CSS variable -->
+  <style>
+    :root { --icon-color: #0F172A; /* slate-900 */ --badge-bg: #00C2FF; --badge-fg: #ffffff; }
+    .bars { fill: var(--icon-color); }
+    .badge { fill: var(--badge-bg); }
+    .badge-text { fill: var(--badge-fg); font-family: ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial; font-weight: 700; }
+  </style>
+
+  <!-- Signal bars -->
+  <g class="bars" transform="translate(24,24)">
+    <rect x="0"   y="160" width="28" height="32" rx="6" />
+    <rect x="36"  y="136" width="28" height="56" rx="6" />
+    <rect x="72"  y="108" width="28" height="84" rx="6" />
+    <rect x="108" y="76"  width="28" height="116" rx="6" />
+    <rect x="144" y="40"  width="28" height="152" rx="6" />
+  </g>
+
+  <!-- 5G badge (rounded capsule) -->
+  <g transform="translate(24,24)">
+    <rect class="badge" x="0" y="0" width="116" height="36" rx="18" />
+    <text class="badge-text" x="58" y="24" text-anchor="middle" font-size="20">5G NR</text>
+  </g>
+
+</svg>

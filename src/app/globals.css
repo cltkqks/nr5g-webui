@@ -1,0 +1,30 @@
+@import "tailwindcss";
+
+:root {
+  --background: #020617;
+  --foreground: #e2e8f0;
+  --accent: #22d3ee;
+}
+
+@theme inline {
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --color-accent: var(--accent);
+  --font-sans: var(--font-geist-sans);
+  --font-mono: var(--font-geist-mono);
+}
+
+body {
+  min-height: 100vh;
+  background:
+    radial-gradient(circle at 20% 20%, rgba(34, 211, 238, 0.08), transparent 40%),
+    radial-gradient(circle at 80% 10%, rgba(14, 116, 144, 0.1), transparent 45%),
+    var(--background);
+  color: var(--foreground);
+  font-family: var(--font-sans), system-ui, -apple-system, BlinkMacSystemFont;
+  letter-spacing: 0.01em;
+}
+
+a {
+  color: var(--accent);
+}
