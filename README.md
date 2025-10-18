@@ -20,20 +20,24 @@
 ![Applications](./public/screenshots/applications.png)
 
 ## Performance
-- Spectrum math offloaded to a Web Worker for large traces.
-- Automatic switch from SVG to Canvas rendering above 3k points (tunable).
-- Overlay SVG for markers keeps interaction crisp while Canvas renders the trace.
+- **C++ Native Addon**: Spectrum processing accelerated with native C++ code (5-10x faster than JavaScript)
+- **Web Worker**: Computation offloaded to prevent UI blocking
+- **Automatic Fallback**: Gracefully falls back to JavaScript if native addon unavailable
+- **Smart Rendering**: Automatic switch from SVG to Canvas above 3k points (tunable)
+- **SVG Overlay**: Markers remain interactive while Canvas renders the trace
+- **Zero-Copy Transfer**: ArrayBuffer transfer for efficient data passing
 
 ## Tech Stack
-- Next.js 15 App Router (TypeScript) — `src/app`; dev uses Turbopack (`next dev --turbopack`).
-- React 19 — concurrent-ready components.
-- TypeScript 5 — strict mode, `moduleResolution: bundler`, alias `@/*` (see `tsconfig.json`).
-- Tailwind CSS v4 via `@tailwindcss/postcss` (configured in `postcss.config.mjs`); theme and tokens in `src/app/globals.css`.
-- Zod for runtime schema validation of bridge messages (`src/app/bridge/schema.ts`).
-- Vitest 2 (jsdom) + Testing Library for unit/component tests.
-- ESLint 9 with `next/core-web-vitals` + TypeScript rules.
-- Web Worker for spectrum processing (`src/app/workers/spectrum.worker.ts`) loaded via `new URL(..., import.meta.url)`.
-- Canvas 2D renderer for large traces (`src/app/components/spectrum/CanvasSpectrum.tsx`) with SVG overlay for markers.
+- **Next.js 15** App Router (TypeScript) — `src/app`; dev uses Turbopack (`next dev --turbopack`)
+- **React 19** — Concurrent-ready components
+- **TypeScript 5** — Strict mode, `moduleResolution: bundler`, alias `@/*`
+- **C++ Native Addon** — High-performance spectrum processing via N-API (`native/`)
+- **Tailwind CSS v4** — Via `@tailwindcss/postcss`; theme in `src/app/globals.css`
+- **Zod** — Runtime schema validation of bridge messages (`src/app/bridge/schema.ts`)
+- **Web Worker** — Offloaded spectrum processing (`src/app/workers/spectrum.worker.ts`)
+- **Canvas 2D** — Renderer for large traces (`src/app/components/spectrum/CanvasSpectrum.tsx`)
+- **Vitest 2** — Unit/component tests with jsdom + Testing Library
+- **ESLint 9** — With `next/core-web-vitals` + TypeScript rules
 
 ## Architecture
 ```mermaid
@@ -51,19 +55,38 @@ graph TD
   H -.->|SCPI/LAN| I[Instrument]
 ```
 
-## Quick Start (Mock)
-- Prereqs: Node.js 20+, npm 10+
-- Install: `npm install`
-- Dev: `npm run dev`
-- Open: http://localhost:3000
-- Click Connect → Start capture
+## Quick Start
 
-Connect To A Real Analyzer
-- Set `.env.local`:
+### Prerequisites
+- **Node.js 20+** and **npm 10+**
+- **C++ Build Tools** (optional, for native addon):
+  - macOS: `xcode-select --install`
+  - Linux: `sudo apt-get install build-essential python3`
+  - Windows: Visual Studio Build Tools
 
-  NEXT_PUBLIC_ANALYZER_WS_URL=ws://192.0.2.10:9000
+### Installation & Development
+```bash
+# Install dependencies (automatically builds native addon)
+npm install
 
-- Restart `npm run dev`. The UI uses the WebSocket controller when this is set.
+# Start development server
+npm run dev
+
+# Open browser
+open http://localhost:3000
+
+# Click Connect → Start capture
+```
+
+**Note:** If native addon build fails, the app automatically uses JavaScript fallback (slightly slower but fully functional).
+
+### Connect To A Real Analyzer
+Create a `.env.local` file:
+```bash
+NEXT_PUBLIC_ANALYZER_WS_URL=ws://192.0.2.10:9000
+```
+
+Restart the dev server. The UI automatically uses the WebSocket controller when this environment variable is set.
 
 ## Bridge Protocol
 - Outbound (UI → bridge)
@@ -85,19 +108,46 @@ Data Shapes
 - Bridge schema (Zod): `src/app/bridge/schema.ts`
 
 ## Project Structure
-- Entry: `src/app/page.tsx`
-- Layout + styles: `src/app/layout.tsx`, `src/app/globals.css`
-- Dashboard: `src/app/components/DashboardPage.tsx`
-- Navigation: `src/app/components/SideNavigation.tsx`
-- Overview: `src/app/components/OverviewView.tsx`
-- Spectrum: `src/app/components/spectrum/SpectrumView.tsx`, `src/app/components/spectrum/CanvasSpectrum.tsx`
-- Measurements: `src/app/components/measurements/MeasurementsView.tsx`
-- Setup: `src/app/components/setup/SetupView.tsx`
-- Apps: `src/app/components/applications/ApplicationsView.tsx`
-- Hooks: `src/app/hooks/useAnalyzer.ts`, `src/app/hooks/useMockAnalyzer.ts`, `src/app/hooks/useWebSocketAnalyzer.ts`, `src/app/hooks/useSpectrumWorker.ts`
-- Worker: `src/app/workers/spectrum.worker.ts`
-- Mock: `src/app/mock/*`
-- Utils: `src/app/utils/*`
+
+```
+nr5g-webui/
+├── native/                      # C++ Native Addon
+│   ├── addon.cpp               # N-API bindings
+│   ├── spectrum.cpp/.h         # Core algorithms
+│   ├── index.js                # JS wrapper
+│   └── index.d.ts              # TypeScript definitions
+├── src/app/
+│   ├── page.tsx                # Entry point
+│   ├── layout.tsx              # Root layout
+│   ├── globals.css             # Tailwind styles
+│   ├── components/             # React components
+│   │   ├── DashboardPage.tsx
+│   │   ├── SideNavigation.tsx
+│   │   ├── overview/           # Overview view
+│   │   ├── spectrum/           # Spectrum view + Canvas
+│   │   ├── measurements/       # Measurements view
+│   │   ├── setup/              # Setup view
+│   │   └── applications/       # Applications view
+│   ├── hooks/                  # React hooks
+│   │   ├── useAnalyzer.ts      # Main controller
+│   │   ├── useMockAnalyzer.ts  # Mock implementation
+│   │   ├── useWebSocketAnalyzer.ts  # WebSocket bridge
+│   │   └── useSpectrumWorker.ts     # Worker hook
+│   ├── workers/                # Web Workers
+│   │   ├── spectrum.worker.ts       # Main worker
+│   │   └── spectrum.worker.types.ts # Shared types
+│   ├── utils/                  # Utilities
+│   │   ├── spectrum.ts         # Spectrum utilities
+│   │   ├── spectrum-native.ts  # Native loader
+│   │   ├── format.ts           # Formatting
+│   │   └── ...
+│   ├── types/                  # TypeScript types
+│   ├── mock/                   # Mock data
+│   └── bridge/                 # Bridge schema
+├── tests/                      # Vitest tests
+├── binding.gyp                 # node-gyp config
+└── package.json
+```
 
 ## Rendering & Worker Details
 - SVG path rendering for traces < 3k points.
@@ -106,11 +156,27 @@ Data Shapes
 - Threshold is defined in `src/app/components/spectrum/SpectrumView.tsx` (`CANVAS_THRESHOLD`).
 
 ## Scripts
-- `npm run dev` — Start dev server
-- `npm run build` — Production build
-- `npm start` — Serve production build
-- `npm run lint` — Lint
-- `npm test` — Run tests (Vitest)
+
+### Development
+```bash
+npm run dev              # Start dev server with Turbopack
+npm run lint             # Run ESLint
+npm test                 # Run tests once
+npm run test:watch       # Run tests in watch mode
+```
+
+### Native Addon
+```bash
+npm run build:native         # Build C++ addon
+npm run build:native:debug   # Build with debug symbols
+npm run clean:native         # Clean build artifacts
+```
+
+### Production
+```bash
+npm run build            # Build native addon + Next.js app
+npm start                # Serve production build
+```
 
 ## Testing
 - Run once: `npm test`
@@ -123,9 +189,21 @@ Data Shapes
 - Provide `NEXT_PUBLIC_ANALYZER_WS_URL` in the environment if using a bridge.
 
 ## Troubleshooting
-- “Bridge URL not configured” → add `NEXT_PUBLIC_ANALYZER_WS_URL` and restart dev server.
-- No live spectrum → verify `spectrum` and `heartbeat` messages from the bridge; check browser console for WebSocket errors.
-- Marker drag not working → ensure a trace is present and drag within the plot area.
+
+### Native Addon
+- **Build fails**: See [NATIVE_ADDON.md](./NATIVE_ADDON.md#-troubleshooting) for platform-specific solutions
+- **"Native addon not available"**: This is normal! App uses JavaScript fallback automatically
+- **Performance issues**: Verify native addon is loaded with `native.isNativeAvailable()`
+
+### Bridge Connection
+- **"Bridge URL not configured"**: Add `NEXT_PUBLIC_ANALYZER_WS_URL` to `.env.local` and restart
+- **No live spectrum**: Check browser console for WebSocket errors; verify bridge is sending `spectrum` and `heartbeat` messages
+- **Connection drops**: Bridge may need auto-reconnect logic; check network tab
+
+### UI Issues
+- **Marker drag not working**: Ensure trace is present and drag within the plot area
+- **Canvas not rendering**: Check browser console; verify points array is valid
+- **Worker errors**: Check Web Worker support in browser (all modern browsers supported)
 
 ## Roadmap
 - Waterfall view (time history heatmap) for spectrum activity.

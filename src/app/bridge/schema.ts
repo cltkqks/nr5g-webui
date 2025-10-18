@@ -1,10 +1,8 @@
 import { z } from "zod";
 
-// Shared enums
 export const AcquisitionStateSchema = z.enum(["idle", "armed", "capturing"]);
 export const PathModeSchema = z.enum(["1RF", "2RF", "correlation"]);
 
-// AnalyzerConfig (full), used as partials for inbound updates
 export const AnalyzerConfigSchema = z.object({
   centerFrequencyGHz: z.number(),
   spanGHz: z.number(),
@@ -33,7 +31,6 @@ export const AnalyzerMeasurementSchema = z.object({
   description: z.string().optional(),
 });
 
-// A very loose partial of AnalyzerState for inbound state patches
 export const AnalyzerStatePatchSchema = z
   .object({
     model: z.string().optional(),
@@ -43,7 +40,7 @@ export const AnalyzerStatePatchSchema = z
       .enum(["connected", "disconnected", "connecting"])
       .optional(),
     acquisitionState: AcquisitionStateSchema.optional(),
-    lastSync: z.any().optional(), // will be normalized by the client
+    lastSync: z.any().optional(),
     config: AnalyzerConfigSchema.partial().optional(),
     measurements: z.array(AnalyzerMeasurementSchema).optional(),
     spectrum: z.array(SpectrumPointSchema).optional(),
@@ -51,11 +48,9 @@ export const AnalyzerStatePatchSchema = z
       .array(SpectrumPointSchema.extend({ label: z.string() }))
       .optional(),
     markerAutoPeakSearch: z.boolean().optional(),
-    // traceMemories/eventLog/measurementLog and others intentionally omitted
   })
   .passthrough();
 
-// Discriminated inbound union from the bridge
 export const BridgeInboundSchema = z.discriminatedUnion("type", [
   z.object({ type: z.literal("heartbeat"), payload: z.any().optional() }),
   z.object({

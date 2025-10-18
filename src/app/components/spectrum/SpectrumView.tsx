@@ -27,8 +27,7 @@ interface ChartGeometry {
 
 const CHART_WIDTH = 880;
 const CHART_HEIGHT = 320;
-// Switch to Canvas/WebGL rendering when the trace is large
-const CANVAS_THRESHOLD = 3000; // tune between 2000–4000 based on device
+const CANVAS_THRESHOLD = 3000;
 
 const markerColors = ["#22d3ee", "#f472b6", "#fbbf24", "#a855f7"];
 
@@ -355,7 +354,6 @@ export function SpectrumView({ controller }: SpectrumViewProps) {
     acquisitionState,
   } = state;
 
-  // Drag handling for markers
   const svgRef = useRef<SVGSVGElement | null>(null);
   const [draggingLabel, setDraggingLabel] = useState<string | null>(null);
 
@@ -364,7 +362,7 @@ export function SpectrumView({ controller }: SpectrumViewProps) {
     width: CHART_WIDTH,
     height: CHART_HEIGHT,
     computeCoords: useCanvas,
-    enabled: spectrum.length >= 1000, // offload heavier traces
+    enabled: spectrum.length >= 1000,
   });
 
   const chart = useMemo(
@@ -372,7 +370,6 @@ export function SpectrumView({ controller }: SpectrumViewProps) {
     [spectrum, useCanvas]
   );
   const noiseFloor = useMemo(() => {
-    // Prefer worker value if available
     if (worker.ready && typeof worker.result?.noiseFloor === "number") {
       return worker.result.noiseFloor;
     }
@@ -413,11 +410,9 @@ export function SpectrumView({ controller }: SpectrumViewProps) {
   const handleChartClick = useCallback(
     (e: React.MouseEvent<SVGSVGElement, MouseEvent>) => {
       if (suppressClickRef.current) {
-        // Swallow the click generated after a drag
         suppressClickRef.current = false;
         return;
       }
-      // Use geometry bounds from chart or worker
       const g = chart
         ? { freqMin: chart.freqMin, freqMax: chart.freqMax }
         : bounds;
@@ -442,9 +437,7 @@ export function SpectrumView({ controller }: SpectrumViewProps) {
 
   const handleMarkerClick = useCallback(
     (e: React.MouseEvent, label: string) => {
-      // Prevent the chart click handler from adding a new marker
       e.stopPropagation();
-      // If we didn't drag, interpret as remove action
       if (!didDragRef.current) {
         deleteMarker(label);
       }
@@ -457,7 +450,6 @@ export function SpectrumView({ controller }: SpectrumViewProps) {
     let raf = 0;
     const handleMove = (e: MouseEvent) => {
       if (!svgRef.current) return;
-      // Throttle with rAF to avoid excessive updates
       if (raf) cancelAnimationFrame(raf);
       raf = requestAnimationFrame(() => {
         if (!svgRef.current) return;

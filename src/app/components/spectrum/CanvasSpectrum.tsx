@@ -37,12 +37,10 @@ export function CanvasSpectrum(props: CanvasSpectrumProps) {
     if (!ctx) return;
     ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
 
-    // Clear
     ctx.clearRect(0, 0, width, height);
 
     const { freqMin, freqMax, ampMin, ampMax } = drawData.bounds;
 
-    // Prepare path
     ctx.lineWidth = 2;
     ctx.strokeStyle = "#22d3ee";
     ctx.lineJoin = "round";
@@ -51,11 +49,9 @@ export function CanvasSpectrum(props: CanvasSpectrumProps) {
     const freqSpan = freqMax - freqMin || 1;
     const ampSpan = ampMax - ampMin || 1;
 
-    // Build shape path
     ctx.beginPath();
     const len = drawData.points.length;
     if (drawData.coords && drawData.coords.length >= len * 2) {
-      // Use precomputed coordinates
       const c = drawData.coords;
       ctx.moveTo(c[0], c[1]);
       for (let i = 1; i < len; i++) {
@@ -64,7 +60,6 @@ export function CanvasSpectrum(props: CanvasSpectrumProps) {
         ctx.lineTo(x, y);
       }
     } else {
-      // Compute coordinates on the fly
       const first = drawData.points[0];
       let x = ((first.frequency - freqMin) / freqSpan) * width;
       let y = height - ((first.amplitude - ampMin) / ampSpan) * height;
@@ -77,8 +72,6 @@ export function CanvasSpectrum(props: CanvasSpectrumProps) {
       }
     }
 
-    // Fill under the curve with a gradient
-    // Create a copy of path for fill by extending to bottom.
     ctx.save();
     ctx.lineTo(width, height);
     ctx.lineTo(0, height);
@@ -91,7 +84,6 @@ export function CanvasSpectrum(props: CanvasSpectrumProps) {
     ctx.fill();
     ctx.restore();
 
-    // Redraw the stroke path
     ctx.beginPath();
     if (drawData.coords && drawData.coords.length >= len * 2) {
       const c = drawData.coords;
@@ -115,7 +107,6 @@ export function CanvasSpectrum(props: CanvasSpectrumProps) {
     }
     ctx.stroke();
 
-    // Draw noise floor line if provided
     if (typeof noiseFloor === "number") {
       const y = height - ((noiseFloor - ampMin) / ampSpan) * height;
       ctx.strokeStyle = "#334155";

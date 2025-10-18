@@ -500,7 +500,6 @@ export function useMockAnalyzer(
         if (!nearest) return prev;
         const markers = prev.markers.map((m) => {
           if (m.label !== label) return m;
-          // Avoid state churn if no effective change
           if (
             m.frequency === nearest.frequency &&
             m.amplitude === nearest.amplitude
@@ -513,7 +512,6 @@ export function useMockAnalyzer(
             amplitude: nearest.amplitude,
           };
         });
-        // If all markers unchanged, return prev to prevent re-render loops
         const unchanged = markers.every((m, i) => m === prev.markers[i]);
         if (unchanged) return prev;
         return { ...prev, markerAutoPeakSearch: false, markers };

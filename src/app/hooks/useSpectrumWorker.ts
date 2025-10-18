@@ -33,11 +33,11 @@ export function useSpectrumWorker(
 
   useEffect(() => {
     if (!supportsWorker || !enabled) return;
-    // Lazily create the worker
     if (!workerRef.current) {
-      // Use bundler-friendly new URL form
+      // Use ESM worker to satisfy Turbopack's "static in ecmascript" expectation
       workerRef.current = new Worker(
-        new URL("../workers/spectrum.worker.ts", import.meta.url)
+        new URL("../workers/spectrum.worker.ts", import.meta.url),
+        { type: "module", name: "spectrum-worker" }
       );
     }
     const worker = workerRef.current;
@@ -67,9 +67,7 @@ export function useSpectrumWorker(
         height,
         computeCoords,
       });
-    } catch {
-      // ignore post errors
-    }
+    } catch {}
   }, [points, width, height, computeCoords, supportsWorker, enabled]);
 
   return useMemo(() => ({ result, ready: !!result }), [result]);
