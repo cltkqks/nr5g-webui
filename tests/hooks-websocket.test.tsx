@@ -14,9 +14,8 @@ class MockWebSocket {
   constructor(url: string) {
     this.url = url;
     MockWebSocket.instances.push(this);
-    // simulate async open
     setTimeout(() => {
-      this.readyState = 1; // OPEN
+      this.readyState = 1;
       this.onopen?.();
     }, 0);
   }
@@ -24,7 +23,7 @@ class MockWebSocket {
     this.sent.push(JSON.parse(payload));
   }
   close() {
-    this.readyState = 3; // CLOSED
+    this.readyState = 3;
     this.onclose?.();
   }
 }
@@ -63,7 +62,6 @@ describe("useWebSocketAnalyzer", () => {
 
     await waitFor(() => {
       expect(result.current.state.spectrum.length).toBeGreaterThan(0);
-      // auto peak search may add markers
       expect(result.current.state.markers.length).toBeGreaterThan(0);
     });
 

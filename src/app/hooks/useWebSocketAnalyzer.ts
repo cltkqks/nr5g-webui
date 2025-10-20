@@ -37,7 +37,6 @@ export function useWebSocketAnalyzer(
   );
   const wsRef = useRef<WebSocket | null>(null);
 
-  // Helper to safely push an info/error log entry
   const pushLog = useCallback(
     (entry: Parameters<typeof createEventLogEntry>[0]) => {
       setState((prev) => ({
@@ -68,7 +67,6 @@ export function useWebSocketAnalyzer(
       return;
     }
 
-    // Close any prior socket
     if (wsRef.current) {
       try {
         wsRef.current.close();
@@ -111,7 +109,6 @@ export function useWebSocketAnalyzer(
             EVENT_LOG_LIMIT
           ),
         }));
-        // Handshake
         ws.send(
           JSON.stringify({
             type: "handshake",
@@ -186,7 +183,6 @@ export function useWebSocketAnalyzer(
               };
             case "state": {
               const patch = msg.payload as Partial<AnalyzerState>;
-              // If bridge ships config deltas inside state, merge config shallowly
               const nextConfig = patch.config
                 ? { ...prev.config, ...patch.config }
                 : prev.config;
@@ -274,7 +270,6 @@ export function useWebSocketAnalyzer(
       if (prev.connectionState !== "connected") return prev;
       const next =
         prev.acquisitionState === "capturing" ? "armed" : "capturing";
-      // Send command to bridge
       if (wsRef.current && wsRef.current.readyState === WebSocket.OPEN) {
         wsRef.current.send(
           JSON.stringify({
@@ -305,7 +300,6 @@ export function useWebSocketAnalyzer(
 
   const updateConfig = useCallback(
     (partial: Partial<AnalyzerConfig>) => {
-      // Optimistically update local state
       setState((prev) => {
         const newConfig = { ...prev.config, ...partial };
         const summary = Object.keys(partial).length
@@ -355,7 +349,6 @@ export function useWebSocketAnalyzer(
       ) {
         wsRef.current.send(JSON.stringify({ type: "preset.recall", preset }));
       }
-      // Local UX log
       setState((prev) => ({
         ...prev,
         eventLog: appendWithLimit(

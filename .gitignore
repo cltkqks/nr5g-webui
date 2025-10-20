@@ -39,3 +39,15 @@ yarn-error.log*
 # typescript
 *.tsbuildinfo
 next-env.d.ts
+
+# native addon build artifacts
+build/
+*.node
+*.o
+*.obj
+*.a
+*.lib
+*.exp
+*.pdb
+*.ilk
+.node-gyp/

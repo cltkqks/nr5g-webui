@@ -97,7 +97,6 @@ export interface AnalyzerState {
   measurements: AnalyzerMeasurement[];
   spectrum: SpectrumTracePoint[];
   markers: AnalyzerMarker[];
-  // When enabled, markers auto-populate from peak search of the current spectrum
   markerAutoPeakSearch: boolean;
   traceMemories: AnalyzerTraceMemory[];
   eventLog: AnalyzerEventLogEntry[];
@@ -113,7 +112,6 @@ export interface AnalyzerController {
   toggleAcquisition: () => void;
   updateConfig: (partial: Partial<AnalyzerConfig>) => void;
   recallPreset: (preset: "5g-fr2" | "satcom" | "radar") => void;
-  // Marker controls
   setMarkerAutoPeakSearch: (enabled: boolean) => void;
   clearMarkers: () => void;
   addMarkerAtFrequency: (frequencyHz: number) => void;

@@ -4,17 +4,22 @@
   "private": true,
   "scripts": {
     "dev": "next dev --turbopack",
-    "build": "next build",
+    "build": "npm run build:native && next build",
+    "build:native": "node-gyp rebuild",
+    "build:native:debug": "node-gyp rebuild --debug",
+    "clean:native": "node-gyp clean",
     "start": "next start",
     "lint": "next lint",
     "test": "vitest run --reporter=dot",
-    "test:watch": "vitest"
+    "test:watch": "vitest",
+    "postinstall": "npm run build:native || echo 'Native addon build failed, will use JavaScript fallback'"
   },
   "dependencies": {
     "react": "19.1.0",
     "react-dom": "19.1.0",
     "next": "15.4.4",
-    "zod": "^3.23.8"
+    "zod": "^3.23.8",
+    "node-addon-api": "^8.0.0"
   },
   "devDependencies": {
     "typescript": "^5",
@@ -28,6 +33,8 @@
     "@eslint/eslintrc": "^3",
     "vitest": "^2.0.5",
     "@testing-library/react": "^16.0.0",
-    "jsdom": "^25.0.0"
-  }
+    "jsdom": "^25.0.0",
+    "node-gyp": "^10.0.0"
+  },
+  "gypfile": true
 }

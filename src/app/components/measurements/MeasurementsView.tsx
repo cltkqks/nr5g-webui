@@ -16,8 +16,6 @@ const statusColor: Record<AnalyzerMeasurement["status"], string> = {
   critical: "text-rose-300",
 };
 
-// Use shared formatter from utils; handle null at call site.
-
 function MeasurementSummaryPanel({
   acquisitionState,
   averagingCount,
