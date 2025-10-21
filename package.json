@@ -15,26 +15,28 @@
     "postinstall": "npm run build:native || echo 'Native addon build failed, will use JavaScript fallback'"
   },
   "dependencies": {
+    "@reduxjs/toolkit": "^2.9.1",
+    "next": "15.4.4",
+    "node-addon-api": "^8.0.0",
     "react": "19.1.0",
     "react-dom": "19.1.0",
-    "next": "15.4.4",
-    "zod": "^3.23.8",
-    "node-addon-api": "^8.0.0"
+    "react-redux": "^9.1.0",
+    "zod": "^3.23.8"
   },
   "devDependencies": {
-    "typescript": "^5",
+    "@eslint/eslintrc": "^3",
+    "@tailwindcss/postcss": "^4",
+    "@testing-library/react": "^16.0.0",
     "@types/node": "^20",
     "@types/react": "^19",
     "@types/react-dom": "^19",
-    "@tailwindcss/postcss": "^4",
-    "tailwindcss": "^4",
     "eslint": "^9",
     "eslint-config-next": "15.4.4",
-    "@eslint/eslintrc": "^3",
-    "vitest": "^2.0.5",
-    "@testing-library/react": "^16.0.0",
     "jsdom": "^25.0.0",
-    "node-gyp": "^10.0.0"
+    "node-gyp": "^10.0.0",
+    "tailwindcss": "^4",
+    "typescript": "^5",
+    "vitest": "^2.0.5"
   },
   "gypfile": true
 }

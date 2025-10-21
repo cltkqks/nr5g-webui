@@ -1,6 +1,8 @@
 import { act, renderHook, waitFor } from "@testing-library/react";
-import { describe, expect, it } from "vitest";
+import { beforeEach, describe, expect, it } from "vitest";
 import { useWebSocketAnalyzer } from "../src/app/hooks/useWebSocketAnalyzer";
+import { store } from "../src/app/store";
+import { analyzerActions } from "../src/app/store/analyzerSlice";
 
 class MockWebSocket {
   static instances: MockWebSocket[] = [];
@@ -32,6 +34,9 @@ class MockWebSocket {
 global.WebSocket = MockWebSocket as typeof WebSocket;
 
 describe("useWebSocketAnalyzer", () => {
+  beforeEach(() => {
+    store.dispatch(analyzerActions.reset());
+  });
   it("connects and processes inbound messages", async () => {
     const { result } = renderHook(() =>
       useWebSocketAnalyzer({ enabled: true, url: "ws://test" })

@@ -1,6 +1,12 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import {
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useSyncExternalStore,
+} from "react";
 import {
   AnalyzerConfig,
   AnalyzerController,
@@ -10,7 +16,13 @@ import {
 } from "../types/analyzer";
 
 import { measurementSpecIndex as measurementSpecIndexShared } from "../mock/measurements";
-import { createInitialAnalyzerState } from "../mock/state";
+import { store } from "../store";
+import {
+  analyzerActions,
+  EVENT_LOG_LIMIT,
+  MEASUREMENT_LOG_LIMIT,
+  TRACE_MEMORY_LIMIT,
+} from "../store/analyzerSlice";
 import { appendManyWithLimit, appendWithLimit } from "../utils/collections";
 import { createId } from "../utils/id";
 import { createEventLogEntry } from "../utils/logs";
@@ -23,10 +35,6 @@ import {
   nextMarkerLabel,
 } from "../utils/spectrum";
 
-const TRACE_MEMORY_LIMIT = 6;
-const EVENT_LOG_LIMIT = 60;
-const MEASUREMENT_LOG_LIMIT = 120;
-
 export interface UseMockAnalyzerOptions {
   enabled?: boolean;
 }
@@ -35,8 +43,10 @@ export function useMockAnalyzer(
   options?: UseMockAnalyzerOptions
 ): AnalyzerController {
   const { enabled = true } = options ?? {};
-  const [state, setState] = useState<AnalyzerState>(() =>
-    createInitialAnalyzerState()
+  const state = useSyncExternalStore(
+    store.subscribe,
+    () => store.getState().analyzer,
+    () => store.getState().analyzer
   );
   const connectionTimeout = useRef<number | null>(null);
 
@@ -90,9 +100,7 @@ export function useMockAnalyzer(
   );
 
   useEffect(() => {
-    if (!enabled) {
-      return;
-    }
+    if (!enabled) return;
 
     let spectrumTimer: number | undefined;
     let syncTimer: number | undefined;
@@ -102,73 +110,72 @@ export function useMockAnalyzer(
       state.acquisitionState === "capturing"
     ) {
       spectrumTimer = window.setInterval(() => {
-        setState((prev) => {
-          const spectrum = genTraceUtil(prev.config);
-          const markers = prev.markerAutoPeakSearch
-            ? findMarkersUtil(spectrum)
-            : prev.markers;
-          const { nextMeasurements, logEntries } = updateMeasurements(prev);
-          const captureTime = new Date();
-          const traceLabel = `Live capture • ${captureTime.toLocaleTimeString(
-            [],
-            {
-              hour: "2-digit",
-              minute: "2-digit",
-              second: "2-digit",
-            }
-          )}`;
-          const nextTraceMemory = createTraceMemoryUtil({
-            trace: spectrum,
-            config: prev.config,
-            label: traceLabel,
-            capturedAt: captureTime,
-          });
-
-          let nextTraceMemories = prev.traceMemories;
-          let nextEventLog = prev.eventLog;
-
-          if (prev.acquisitionState === "capturing") {
-            nextTraceMemories = appendWithLimit(
-              prev.traceMemories,
-              nextTraceMemory,
-              TRACE_MEMORY_LIMIT
-            );
-
-            const lastCapture =
-              prev.traceMemories[prev.traceMemories.length - 1];
-            const shouldLogCapture =
-              !lastCapture ||
-              captureTime.getTime() - lastCapture.capturedAt.getTime() > 4000;
-
-            if (shouldLogCapture) {
-              nextEventLog = appendWithLimit(
-                prev.eventLog,
-                createEventLogEntry({
-                  level: "info",
-                  source: "acquisition",
-                  message: `Captured trace (${prev.config.spanGHz.toFixed(
-                    1
-                  )} GHz span)`,
-                  detail: `Peak ${nextTraceMemory.peakAmplitudeDbm.toFixed(
-                    1
-                  )} dBm @ ${(nextTraceMemory.peakFrequencyHz / 1e9).toFixed(
-                    3
-                  )} GHz`,
-                  timestamp: captureTime,
-                }),
-                EVENT_LOG_LIMIT
-              );
-            }
+        const prev = store.getState().analyzer;
+        const spectrum = genTraceUtil(prev.config);
+        const markers = prev.markerAutoPeakSearch
+          ? findMarkersUtil(spectrum)
+          : prev.markers;
+        const { nextMeasurements, logEntries } = updateMeasurements(prev);
+        const captureTime = new Date();
+        const traceLabel = `Live capture • ${captureTime.toLocaleTimeString(
+          [],
+          {
+            hour: "2-digit",
+            minute: "2-digit",
+            second: "2-digit",
           }
+        )}`;
+        const nextTraceMemory = createTraceMemoryUtil({
+          trace: spectrum,
+          config: prev.config,
+          label: traceLabel,
+          capturedAt: captureTime,
+        });
 
-          const nextMeasurementLog = appendManyWithLimit(
-            prev.measurementLog,
-            logEntries,
-            MEASUREMENT_LOG_LIMIT
+        let nextTraceMemories = prev.traceMemories;
+        let nextEventLog = prev.eventLog;
+
+        if (prev.acquisitionState === "capturing") {
+          nextTraceMemories = appendWithLimit(
+            prev.traceMemories,
+            nextTraceMemory,
+            TRACE_MEMORY_LIMIT
           );
 
-          return {
-            ...prev,
+          const lastCapture = prev.traceMemories[prev.traceMemories.length - 1];
+          const shouldLogCapture =
+            !lastCapture ||
+            captureTime.getTime() - lastCapture.capturedAt.getTime() > 4000;
+
+          if (shouldLogCapture) {
+            nextEventLog = appendWithLimit(
+              prev.eventLog,
+              createEventLogEntry({
+                level: "info",
+                source: "acquisition",
+                message: `Captured trace (${prev.config.spanGHz.toFixed(
+                  1
+                )} GHz span)`,
+                detail: `Peak ${nextTraceMemory.peakAmplitudeDbm.toFixed(
+                  1
+                )} dBm @ ${(nextTraceMemory.peakFrequencyHz / 1e9).toFixed(
+                  3
+                )} GHz`,
+                timestamp: captureTime,
+              }),
+              EVENT_LOG_LIMIT
+            );
+          }
+        }
+
+        const nextMeasurementLog = appendManyWithLimit(
+          prev.measurementLog,
+          logEntries,
+          MEASUREMENT_LOG_LIMIT
+        );
+
+        store.dispatch(
+          analyzerActions.applyPatch({
             spectrum,
             markers,
             measurements: nextMeasurements,
@@ -176,25 +183,22 @@ export function useMockAnalyzer(
             eventLog: nextEventLog,
             measurementLog: nextMeasurementLog,
             lastSync: new Date(),
-          };
-        });
+          })
+        );
       }, 1500);
 
       syncTimer = window.setInterval(() => {
-        setState((prev) => ({
-          ...prev,
-          lastSync: new Date(),
-        }));
+        store.dispatch(
+          analyzerActions.applyPatch({
+            lastSync: new Date(),
+          })
+        );
       }, 3000);
     }
 
     return () => {
-      if (spectrumTimer) {
-        clearInterval(spectrumTimer);
-      }
-      if (syncTimer) {
-        clearInterval(syncTimer);
-      }
+      if (spectrumTimer) clearInterval(spectrumTimer);
+      if (syncTimer) clearInterval(syncTimer);
     };
   }, [
     enabled,
@@ -212,45 +216,47 @@ export function useMockAnalyzer(
   }, []);
 
   const connect = useCallback(() => {
-    if (!enabled) {
-      return;
-    }
+    if (!enabled) return;
 
-    setState((prev) => ({
-      ...prev,
-      connectionState: "connecting",
-      eventLog: appendWithLimit(
-        prev.eventLog,
-        createEventLogEntry({
-          level: "info",
-          source: "connection",
-          message: "Opening analyzer session...",
-        }),
-        EVENT_LOG_LIMIT
-      ),
-    }));
+    const prev = store.getState().analyzer;
+    store.dispatch(
+      analyzerActions.applyPatch({
+        connectionState: "connecting",
+        eventLog: appendWithLimit(
+          prev.eventLog,
+          createEventLogEntry({
+            level: "info",
+            source: "connection",
+            message: "Opening analyzer session...",
+          }),
+          EVENT_LOG_LIMIT
+        ),
+      })
+    );
 
     if (connectionTimeout.current) {
       clearTimeout(connectionTimeout.current);
     }
 
     connectionTimeout.current = window.setTimeout(() => {
-      setState((prev) => ({
-        ...prev,
-        connectionState: "connected",
-        acquisitionState: "armed",
-        lastSync: new Date(),
-        eventLog: appendWithLimit(
-          prev.eventLog,
-          createEventLogEntry({
-            level: "info",
-            source: "connection",
-            message: "Analyzer connected",
-            detail: "Acquisition armed; ready for capture.",
-          }),
-          EVENT_LOG_LIMIT
-        ),
-      }));
+      const curr = store.getState().analyzer;
+      store.dispatch(
+        analyzerActions.applyPatch({
+          connectionState: "connected",
+          acquisitionState: "armed",
+          lastSync: new Date(),
+          eventLog: appendWithLimit(
+            curr.eventLog,
+            createEventLogEntry({
+              level: "info",
+              source: "connection",
+              message: "Analyzer connected",
+              detail: "Acquisition armed; ready for capture.",
+            }),
+            EVENT_LOG_LIMIT
+          ),
+        })
+      );
       connectionTimeout.current = null;
     }, 800);
   }, [enabled]);
@@ -261,9 +267,9 @@ export function useMockAnalyzer(
       connectionTimeout.current = null;
     }
 
-    if (!enabled) {
-      setState((prev) => ({
-        ...prev,
+    const prev = store.getState().analyzer;
+    store.dispatch(
+      analyzerActions.applyPatch({
         connectionState: "disconnected",
         acquisitionState: "idle",
         eventLog: appendWithLimit(
@@ -271,46 +277,25 @@ export function useMockAnalyzer(
           createEventLogEntry({
             level: "info",
             source: "connection",
-            message: "Disconnected from analyzer (mock).",
+            message: enabled
+              ? "Analyzer link closed by user."
+              : "Disconnected from analyzer (mock).",
           }),
           EVENT_LOG_LIMIT
         ),
-      }));
-      return;
-    }
-
-    setState((prev) => ({
-      ...prev,
-      connectionState: "disconnected",
-      acquisitionState: "idle",
-      eventLog: appendWithLimit(
-        prev.eventLog,
-        createEventLogEntry({
-          level: "info",
-          source: "connection",
-          message: "Analyzer link closed by user.",
-        }),
-        EVENT_LOG_LIMIT
-      ),
-    }));
+      })
+    );
   }, [enabled]);
 
   const toggleAcquisition = useCallback(() => {
-    if (!enabled) {
-      return;
-    }
-
-    setState((prev) => {
-      if (prev.connectionState !== "connected") {
-        return prev;
-      }
-
-      const nextState =
-        prev.acquisitionState === "capturing" ? "armed" : "capturing";
-      const captureStarted = nextState === "capturing";
-
-      return {
-        ...prev,
+    if (!enabled) return;
+    const prev = store.getState().analyzer;
+    if (prev.connectionState !== "connected") return;
+    const nextState =
+      prev.acquisitionState === "capturing" ? "armed" : "capturing";
+    const captureStarted = nextState === "capturing";
+    store.dispatch(
+      analyzerActions.applyPatch({
         acquisitionState: nextState,
         lastSync: nextState === "capturing" ? new Date() : prev.lastSync,
         eventLog: appendWithLimit(
@@ -329,68 +314,42 @@ export function useMockAnalyzer(
           }),
           EVENT_LOG_LIMIT
         ),
-      };
-    });
+      })
+    );
   }, [enabled]);
 
-  const updateConfig = useCallback(
-    (partial: Partial<AnalyzerConfig>) => {
-      if (!enabled) {
-        setState((prev) => ({
-          ...prev,
-          config: { ...prev.config, ...partial },
-          eventLog:
-            Object.keys(partial).length === 0
-              ? prev.eventLog
-              : appendWithLimit(
-                  prev.eventLog,
-                  createEventLogEntry({
-                    level: "info",
-                    source: "config",
-                    message: "Updated analyzer settings",
-                    detail: summarizeConfigChanges(partial),
-                  }),
-                  EVENT_LOG_LIMIT
-                ),
-        }));
-        return;
-      }
-
-      setState((prev) => {
-        const newConfig = { ...prev.config, ...partial };
-        const summary = Object.keys(partial).length
-          ? summarizeConfigChanges(partial)
-          : "";
-        return {
-          ...prev,
-          config: newConfig,
-          spectrum:
-            prev.connectionState === "connected"
-              ? genTraceUtil(newConfig)
-              : prev.spectrum,
-          eventLog: summary
-            ? appendWithLimit(
-                prev.eventLog,
-                createEventLogEntry({
-                  level: "info",
-                  source: "config",
-                  message: "Updated analyzer settings",
-                  detail: summary,
-                }),
-                EVENT_LOG_LIMIT
-              )
-            : prev.eventLog,
-        };
-      });
-    },
-    [enabled]
-  );
+  const updateConfig = useCallback((partial: Partial<AnalyzerConfig>) => {
+    const prev = store.getState().analyzer;
+    const newConfig = { ...prev.config, ...partial };
+    const summary = Object.keys(partial).length
+      ? summarizeConfigChanges(partial)
+      : "";
+    store.dispatch(
+      analyzerActions.applyPatch({
+        config: partial,
+        spectrum:
+          prev.connectionState === "connected"
+            ? genTraceUtil(newConfig)
+            : prev.spectrum,
+        eventLog: summary
+          ? appendWithLimit(
+              prev.eventLog,
+              createEventLogEntry({
+                level: "info",
+                source: "config",
+                message: "Updated analyzer settings",
+                detail: summary,
+              }),
+              EVENT_LOG_LIMIT
+            )
+          : prev.eventLog,
+      })
+    );
+  }, []);
 
   const recallPreset = useCallback(
     (preset: "5g-fr2" | "satcom" | "radar") => {
-      if (!enabled) {
-        return;
-      }
+      if (!enabled) return;
 
       const presetConfig: Record<typeof preset, Partial<AnalyzerConfig>> = {
         "5g-fr2": {
@@ -422,19 +381,21 @@ export function useMockAnalyzer(
         },
       };
 
-      setState((prev) => ({
-        ...prev,
-        eventLog: appendWithLimit(
-          prev.eventLog,
-          createEventLogEntry({
-            level: "info",
-            source: "preset",
-            message: `Recalled preset ${preset}`,
-            detail: summarizeConfigChanges(presetConfig[preset]),
-          }),
-          EVENT_LOG_LIMIT
-        ),
-      }));
+      const prev = store.getState().analyzer;
+      store.dispatch(
+        analyzerActions.applyPatch({
+          eventLog: appendWithLimit(
+            prev.eventLog,
+            createEventLogEntry({
+              level: "info",
+              source: "preset",
+              message: `Recalled preset ${preset}`,
+              detail: summarizeConfigChanges(presetConfig[preset]),
+            }),
+            EVENT_LOG_LIMIT
+          ),
+        })
+      );
 
       updateConfig(presetConfig[preset]);
     },
@@ -442,80 +403,82 @@ export function useMockAnalyzer(
   );
 
   const setMarkerAutoPeakSearch = useCallback((enabledFlag: boolean) => {
-    setState((prev) => {
-      const nextMarkers =
-        enabledFlag && prev.spectrum.length
-          ? findMarkersUtil(prev.spectrum)
-          : prev.markers;
-      return {
-        ...prev,
+    const prev = store.getState().analyzer;
+    const nextMarkers =
+      enabledFlag && prev.spectrum.length
+        ? findMarkersUtil(prev.spectrum)
+        : prev.markers;
+    store.dispatch(
+      analyzerActions.applyPatch({
         markerAutoPeakSearch: enabledFlag,
         markers: nextMarkers,
-      };
-    });
+      })
+    );
   }, []);
 
   const clearMarkers = useCallback(() => {
-    setState((prev) => ({
-      ...prev,
-      markers: [],
-      markerAutoPeakSearch: false,
-    }));
+    store.dispatch(
+      analyzerActions.applyPatch({ markers: [], markerAutoPeakSearch: false })
+    );
   }, []);
 
   const addMarkerAtFrequency = useCallback((frequencyHz: number) => {
-    setState((prev) => {
-      if (!prev.spectrum || prev.spectrum.length === 0) {
-        return prev;
-      }
-      const nearest = nearestPoint(prev.spectrum, frequencyHz);
-      if (!nearest) return prev;
-      const label = nextMarkerLabel(prev.markers);
-      const newMarker: AnalyzerMarker = {
-        label,
-        frequency: nearest.frequency,
-        amplitude: nearest.amplitude,
-      };
-      return {
-        ...prev,
+    const prev = store.getState().analyzer;
+    if (!prev.spectrum || prev.spectrum.length === 0) return;
+    const nearest = nearestPoint(prev.spectrum, frequencyHz);
+    if (!nearest) return;
+    const label = nextMarkerLabel(prev.markers);
+    const newMarker: AnalyzerMarker = {
+      label,
+      frequency: nearest.frequency,
+      amplitude: nearest.amplitude,
+    };
+    store.dispatch(
+      analyzerActions.applyPatch({
         markerAutoPeakSearch: false,
         markers: [...prev.markers, newMarker],
-      };
-    });
+      })
+    );
   }, []);
 
   const deleteMarker = useCallback((label: string) => {
-    setState((prev) => ({
-      ...prev,
-      markers: prev.markers.filter((m) => m.label !== label),
-      markerAutoPeakSearch: false,
-    }));
+    const prev = store.getState().analyzer;
+    store.dispatch(
+      analyzerActions.applyPatch({
+        markers: prev.markers.filter((m) => m.label !== label),
+        markerAutoPeakSearch: false,
+      })
+    );
   }, []);
 
   const moveMarkerToFrequency = useCallback(
     (label: string, frequencyHz: number) => {
-      setState((prev) => {
-        if (!prev.spectrum || prev.spectrum.length === 0) return prev;
-        const nearest = nearestPoint(prev.spectrum, frequencyHz);
-        if (!nearest) return prev;
-        const markers = prev.markers.map((m) => {
-          if (m.label !== label) return m;
-          if (
-            m.frequency === nearest.frequency &&
-            m.amplitude === nearest.amplitude
-          ) {
-            return m;
-          }
-          return {
-            ...m,
-            frequency: nearest.frequency,
-            amplitude: nearest.amplitude,
-          };
-        });
-        const unchanged = markers.every((m, i) => m === prev.markers[i]);
-        if (unchanged) return prev;
-        return { ...prev, markerAutoPeakSearch: false, markers };
+      const prev = store.getState().analyzer;
+      if (!prev.spectrum || prev.spectrum.length === 0) return;
+      const nearest = nearestPoint(prev.spectrum, frequencyHz);
+      if (!nearest) return;
+      const markers = prev.markers.map((m) => {
+        if (m.label !== label) return m;
+        if (
+          m.frequency === nearest.frequency &&
+          m.amplitude === nearest.amplitude
+        ) {
+          return m;
+        }
+        return {
+          ...m,
+          frequency: nearest.frequency,
+          amplitude: nearest.amplitude,
+        };
       });
+      const unchanged = markers.every((m, i) => m === prev.markers[i]);
+      if (unchanged) return;
+      store.dispatch(
+        analyzerActions.applyPatch({
+          markerAutoPeakSearch: false,
+          markers,
+        })
+      );
     },
     []
   );
