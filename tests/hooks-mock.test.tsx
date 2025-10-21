@@ -1,6 +1,13 @@
 import { act, renderHook } from "@testing-library/react";
-import { describe, expect, it } from "vitest";
+import { beforeEach, describe, expect, it } from "vitest";
 import { useMockAnalyzer } from "../src/app/hooks/useMockAnalyzer";
+import { store } from "../src/app/store";
+import { analyzerActions } from "../src/app/store/analyzerSlice";
+
+// Ensure a clean analyzer state for each test
+beforeEach(() => {
+  store.dispatch(analyzerActions.reset());
+});
 
 describe("useMockAnalyzer", () => {
   it("recalls preset and updates config", () => {

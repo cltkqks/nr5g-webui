@@ -1,14 +1,17 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import {
+  useCallback,
+  useMemo,
+  useRef,
+  useSyncExternalStore,
+} from "react";
 import {
   AnalyzerConfig,
   AnalyzerController,
   AnalyzerMarker,
-  AnalyzerState,
 } from "../types/analyzer";
 
-import { createInitialAnalyzerState } from "../mock/state";
 import { appendWithLimit } from "../utils/collections";
 import { createEventLogEntry } from "../utils/logs";
 import { summarizeConfigChanges } from "../utils/config";
@@ -18,9 +21,9 @@ import {
   nearestPoint,
   nextMarkerLabel,
 } from "../utils/spectrum";
-import { BridgeInboundSchema } from "../bridge/schema";
-
-const EVENT_LOG_LIMIT = 60;
+import { store } from "../store";
+import { analyzerActions, EVENT_LOG_LIMIT } from "../store/analyzerSlice";
+import { bridgeApi, closeSocket, getSocket } from "../store/bridgeApi";
 
 export interface UseWebSocketAnalyzerOptions {
   enabled?: boolean;
@@ -32,254 +35,74 @@ export function useWebSocketAnalyzer(
 ): AnalyzerController {
   const { enabled = false, url } = options;
 
-  const [state, setState] = useState<AnalyzerState>(() =>
-    createInitialAnalyzerState()
+  const state = useSyncExternalStore(
+    store.subscribe,
+    () => store.getState().analyzer,
+    () => store.getState().analyzer
   );
   const wsRef = useRef<WebSocket | null>(null);
 
-  const pushLog = useCallback(
-    (entry: Parameters<typeof createEventLogEntry>[0]) => {
-      setState((prev) => ({
-        ...prev,
+  const connect = useCallback(() => {
+    if (!enabled || !url) return;
+
+    const prev = store.getState().analyzer;
+    store.dispatch(
+      analyzerActions.applyPatch({
+        connectionState: "connecting",
         eventLog: appendWithLimit(
           prev.eventLog,
-          createEventLogEntry(entry),
+          createEventLogEntry({
+            level: "info",
+            source: "connection",
+            message: `Opening analyzer session via bridge…`,
+            detail: url,
+          }),
           EVENT_LOG_LIMIT
         ),
-      }));
-    },
-    []
-  );
+      })
+    );
 
-  useEffect(() => {
-    return () => {
-      if (wsRef.current) {
-        try {
-          wsRef.current.close();
-        } catch {}
-        wsRef.current = null;
-      }
-    };
-  }, []);
-
-  const connect = useCallback(() => {
-    if (!enabled || !url) {
-      return;
-    }
-
-    if (wsRef.current) {
-      try {
-        wsRef.current.close();
-      } catch {}
-      wsRef.current = null;
-    }
-
-    setState((prev) => ({
-      ...prev,
-      connectionState: "connecting",
-      eventLog: appendWithLimit(
-        prev.eventLog,
-        createEventLogEntry({
-          level: "info",
-          source: "connection",
-          message: `Opening analyzer session via bridge…`,
-          detail: url,
-        }),
-        EVENT_LOG_LIMIT
-      ),
-    }));
-
-    try {
-      const ws = new WebSocket(url);
-      wsRef.current = ws;
-
-      ws.onopen = () => {
-        setState((prev) => ({
-          ...prev,
-          connectionState: "connected",
-          acquisitionState: "armed",
-          lastSync: new Date(),
-          eventLog: appendWithLimit(
-            prev.eventLog,
-            createEventLogEntry({
-              level: "info",
-              source: "connection",
-              message: "Analyzer connected (bridge)",
-            }),
-            EVENT_LOG_LIMIT
-          ),
-        }));
-        ws.send(
-          JSON.stringify({
-            type: "handshake",
-            client: "nr5g-webui",
-            version: "0.1.0",
-          })
-        );
-      };
-
-      ws.onmessage = (ev) => {
-        let raw: unknown = null;
-        try {
-          raw = JSON.parse(ev.data as string);
-        } catch (err) {
-          pushLog({
-            level: "warning",
-            source: "bridge",
-            message: "Failed to parse bridge message",
-            detail: String(err),
-          });
-          return;
-        }
-
-        const parsed = BridgeInboundSchema.safeParse(raw);
-        if (!parsed.success) {
-          pushLog({
-            level: "warning",
-            source: "bridge",
-            message: "Bridge message failed schema validation",
-            detail: parsed.error.issues.map((i) => i.message).join("; "),
-          });
-          return;
-        }
-
-        const msg = parsed.data;
-        setState((prev) => {
-          switch (msg.type) {
-            case "heartbeat":
-              return { ...prev, lastSync: new Date() };
-            case "spectrum": {
-              const spectrum = msg.payload;
-              const markers = prev.markerAutoPeakSearch
-                ? findMarkersUtil(spectrum)
-                : prev.markers;
-              return { ...prev, spectrum, markers, lastSync: new Date() };
-            }
-            case "measurements":
-              return {
-                ...prev,
-                measurements: msg.payload,
-                lastSync: new Date(),
-              };
-            case "config": {
-              const next = {
-                ...prev,
-                config: { ...prev.config, ...msg.payload },
-                lastSync: new Date(),
-              };
-              if (prev.connectionState === "connected") {
-                next.spectrum = genTraceUtil(next.config);
-                if (prev.markerAutoPeakSearch) {
-                  next.markers = findMarkersUtil(next.spectrum);
-                }
-              }
-              return next;
-            }
-            case "acquisition":
-              return {
-                ...prev,
-                acquisitionState: msg.payload,
-                lastSync: new Date(),
-              };
-            case "state": {
-              const patch = msg.payload as Partial<AnalyzerState>;
-              const nextConfig = patch.config
-                ? { ...prev.config, ...patch.config }
-                : prev.config;
-              const next: AnalyzerState = {
-                ...prev,
-                ...patch,
-                config: nextConfig,
-                lastSync: new Date(),
-              };
-              return next;
-            }
-          }
-        });
-      };
-
-      ws.onclose = () => {
-        setState((prev) => ({
-          ...prev,
-          connectionState: "disconnected",
-          acquisitionState: "idle",
-          eventLog: appendWithLimit(
-            prev.eventLog,
-            createEventLogEntry({
-              level: "info",
-              source: "connection",
-              message: "Analyzer link closed.",
-            }),
-            EVENT_LOG_LIMIT
-          ),
-        }));
-        wsRef.current = null;
-      };
-
-      ws.onerror = (ev) => {
-        pushLog({
-          level: "error",
-          source: "connection",
-          message: "Bridge connection error",
-          detail: String(
-            (ev as unknown as ErrorEvent).message ?? "socket error"
-          ),
-        });
-      };
-    } catch (err) {
-      pushLog({
-        level: "error",
-        source: "connection",
-        message: "Failed to open WebSocket",
-        detail: String(err),
-      });
-      setState((prev) => ({
-        ...prev,
-        connectionState: "disconnected",
-        acquisitionState: "idle",
-      }));
-    }
-  }, [enabled, url, pushLog]);
+    // Start RTK Query-managed bridge connection
+    store.dispatch(bridgeApi.endpoints.connect.initiate({ url }));
+    wsRef.current = getSocket(url);
+  }, [enabled, url]);
 
   const disconnect = useCallback(() => {
-    if (wsRef.current) {
-      try {
-        wsRef.current.close();
-      } catch {}
-      wsRef.current = null;
-    }
-    setState((prev) => ({
-      ...prev,
-      connectionState: "disconnected",
-      acquisitionState: "idle",
-      eventLog: appendWithLimit(
-        prev.eventLog,
-        createEventLogEntry({
-          level: "info",
-          source: "connection",
-          message: "Analyzer link closed by user.",
-        }),
-        EVENT_LOG_LIMIT
-      ),
-    }));
-  }, []);
+    if (url) closeSocket(url);
+    wsRef.current = null;
+    const prev = store.getState().analyzer;
+    store.dispatch(
+      analyzerActions.applyPatch({
+        connectionState: "disconnected",
+        acquisitionState: "idle",
+        eventLog: appendWithLimit(
+          prev.eventLog,
+          createEventLogEntry({
+            level: "info",
+            source: "connection",
+            message: "Analyzer link closed by user.",
+          }),
+          EVENT_LOG_LIMIT
+        ),
+      })
+    );
+  }, [url]);
 
   const toggleAcquisition = useCallback(() => {
     if (!enabled) return;
-    setState((prev) => {
-      if (prev.connectionState !== "connected") return prev;
-      const next =
-        prev.acquisitionState === "capturing" ? "armed" : "capturing";
-      if (wsRef.current && wsRef.current.readyState === WebSocket.OPEN) {
-        wsRef.current.send(
-          JSON.stringify({
-            type: "command",
-            command: next === "capturing" ? "startCapture" : "stopCapture",
-          })
-        );
-      }
-      return {
-        ...prev,
+    const prev = store.getState().analyzer;
+    if (prev.connectionState !== "connected") return;
+    const next = prev.acquisitionState === "capturing" ? "armed" : "capturing";
+    if (url) {
+      store.dispatch(
+        bridgeApi.endpoints.sendCommand.initiate({
+          url,
+          command: next === "capturing" ? "startCapture" : "stopCapture",
+        })
+      );
+    }
+    store.dispatch(
+      analyzerActions.applyPatch({
         acquisitionState: next,
         lastSync: next === "capturing" ? new Date() : prev.lastSync,
         eventLog: appendWithLimit(
@@ -294,20 +117,20 @@ export function useWebSocketAnalyzer(
           }),
           EVENT_LOG_LIMIT
         ),
-      };
-    });
-  }, [enabled]);
+      })
+    );
+  }, [enabled, url]);
 
   const updateConfig = useCallback(
     (partial: Partial<AnalyzerConfig>) => {
-      setState((prev) => {
-        const newConfig = { ...prev.config, ...partial };
-        const summary = Object.keys(partial).length
-          ? summarizeConfigChanges(partial)
-          : "";
-        return {
-          ...prev,
-          config: newConfig,
+      const prev = store.getState().analyzer;
+      const newConfig = { ...prev.config, ...partial };
+      const summary = Object.keys(partial).length
+        ? summarizeConfigChanges(partial)
+        : "";
+      store.dispatch(
+        analyzerActions.applyPatch({
+          config: partial,
           spectrum:
             prev.connectionState === "connected"
               ? genTraceUtil(newConfig)
@@ -324,109 +147,110 @@ export function useWebSocketAnalyzer(
                 EVENT_LOG_LIMIT
               )
             : prev.eventLog,
-        };
-      });
+        })
+      );
 
-      if (
-        enabled &&
-        wsRef.current &&
-        wsRef.current.readyState === WebSocket.OPEN
-      ) {
-        wsRef.current.send(
-          JSON.stringify({ type: "config.update", payload: partial })
+      if (enabled && url) {
+        store.dispatch(
+          bridgeApi.endpoints.updateConfig.initiate({ url, patch: partial })
         );
       }
     },
-    [enabled]
+    [enabled, url]
   );
 
   const recallPreset = useCallback(
     (preset: "5g-fr2" | "satcom" | "radar") => {
-      if (
-        enabled &&
-        wsRef.current &&
-        wsRef.current.readyState === WebSocket.OPEN
-      ) {
-        wsRef.current.send(JSON.stringify({ type: "preset.recall", preset }));
+      if (enabled && url) {
+        store.dispatch(
+          bridgeApi.endpoints.recallPreset.initiate({ url, preset })
+        );
       }
-      setState((prev) => ({
-        ...prev,
-        eventLog: appendWithLimit(
-          prev.eventLog,
-          createEventLogEntry({
-            level: "info",
-            source: "preset",
-            message: `Recalled preset ${preset}`,
-          }),
-          EVENT_LOG_LIMIT
-        ),
-      }));
+      const prev = store.getState().analyzer;
+      store.dispatch(
+        analyzerActions.applyPatch({
+          eventLog: appendWithLimit(
+            prev.eventLog,
+            createEventLogEntry({
+              level: "info",
+              source: "preset",
+              message: `Recalled preset ${preset}`,
+            }),
+            EVENT_LOG_LIMIT
+          ),
+        })
+      );
     },
-    [enabled]
+    [enabled, url]
   );
 
   const setMarkerAutoPeakSearch = useCallback((enabledFlag: boolean) => {
-    setState((prev) => {
-      const nextMarkers =
-        enabledFlag && prev.spectrum.length
-          ? findMarkersUtil(prev.spectrum)
-          : prev.markers;
-      return {
-        ...prev,
+    const prev = store.getState().analyzer;
+    const nextMarkers =
+      enabledFlag && prev.spectrum.length
+        ? findMarkersUtil(prev.spectrum)
+        : prev.markers;
+    store.dispatch(
+      analyzerActions.applyPatch({
         markerAutoPeakSearch: enabledFlag,
         markers: nextMarkers,
-      };
-    });
+      })
+    );
   }, []);
 
   const clearMarkers = useCallback(() => {
-    setState((prev) => ({ ...prev, markers: [], markerAutoPeakSearch: false }));
+    store.dispatch(
+      analyzerActions.applyPatch({ markers: [], markerAutoPeakSearch: false })
+    );
   }, []);
 
   const addMarkerAtFrequency = useCallback((frequencyHz: number) => {
-    setState((prev) => {
-      if (!prev.spectrum || prev.spectrum.length === 0) return prev;
-      const nearest = nearestPoint(prev.spectrum, frequencyHz);
-      if (!nearest) return prev;
-      const label = nextMarkerLabel(prev.markers);
-      const newMarker: AnalyzerMarker = {
-        label,
-        frequency: nearest.frequency,
-        amplitude: nearest.amplitude,
-      };
-      return {
-        ...prev,
+    const prev = store.getState().analyzer;
+    if (!prev.spectrum || prev.spectrum.length === 0) return;
+    const nearest = nearestPoint(prev.spectrum, frequencyHz);
+    if (!nearest) return;
+    const label = nextMarkerLabel(prev.markers);
+    const newMarker: AnalyzerMarker = {
+      label,
+      frequency: nearest.frequency,
+      amplitude: nearest.amplitude,
+    };
+    store.dispatch(
+      analyzerActions.applyPatch({
         markerAutoPeakSearch: false,
         markers: [...prev.markers, newMarker],
-      };
-    });
+      })
+    );
   }, []);
 
   const deleteMarker = useCallback((label: string) => {
-    setState((prev) => ({
-      ...prev,
-      markers: prev.markers.filter((m) => m.label !== label),
-      markerAutoPeakSearch: false,
-    }));
+    const prev = store.getState().analyzer;
+    store.dispatch(
+      analyzerActions.applyPatch({
+        markers: prev.markers.filter((m) => m.label !== label),
+        markerAutoPeakSearch: false,
+      })
+    );
   }, []);
 
   const moveMarkerToFrequency = useCallback(
     (label: string, frequencyHz: number) => {
-      setState((prev) => {
-        if (!prev.spectrum || prev.spectrum.length === 0) return prev;
-        const nearest = nearestPoint(prev.spectrum, frequencyHz);
-        if (!nearest) return prev;
-        const markers = prev.markers.map((m) =>
-          m.label === label
-            ? {
-                ...m,
-                frequency: nearest.frequency,
-                amplitude: nearest.amplitude,
-              }
-            : m
-        );
-        return { ...prev, markerAutoPeakSearch: false, markers };
-      });
+      const prev = store.getState().analyzer;
+      if (!prev.spectrum || prev.spectrum.length === 0) return;
+      const nearest = nearestPoint(prev.spectrum, frequencyHz);
+      if (!nearest) return;
+      const markers = prev.markers.map((m) =>
+        m.label === label
+          ? {
+              ...m,
+              frequency: nearest.frequency,
+              amplitude: nearest.amplitude,
+            }
+          : m
+      );
+      store.dispatch(
+        analyzerActions.applyPatch({ markerAutoPeakSearch: false, markers })
+      );
     },
     []
   );
